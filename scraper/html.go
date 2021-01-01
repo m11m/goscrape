@@ -55,6 +55,10 @@ func (s *Scraper) fixQuerySelection(url *url.URL, attribute string, selection *g
 		return
 	}
 
-	s.log.Debug("HTML Element relinked", zap.String("URL", src), zap.String("Fixed", resolved))
-	selection.SetAttr(attribute, resolved)
+	if linkIsAPage && s.config.SkipIndexRewrites {
+		s.log.Debug("Skipping anchor href rewrite", zap.String("href", src), zap.String("path", resolved))
+	} else {
+		s.log.Debug("HTML Element relinked", zap.String("URL", src), zap.String("Fixed", resolved))
+		selection.SetAttr(attribute, resolved)
+	}
 }

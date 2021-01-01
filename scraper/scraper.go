@@ -26,6 +26,8 @@ type Config struct {
 	MaxDepth     uint // download depth, 0 for unlimited
 	Timeout      uint // time limit in seconds to process each http request
 
+	SkipIndexRewrites bool // don't append index.html in some anchor hrefs
+
 	OutputDirectory string
 	Username        string
 	Password        string
@@ -77,6 +79,8 @@ func New(logger *zap.Logger, cfg Config) (*Scraper, error) {
 	b := surf.NewBrowser()
 	b.SetUserAgent(agent.GoogleBot())
 	b.SetTimeout(time.Duration(cfg.Timeout) * time.Second)
+
+	cfg.SkipIndexRewrites = true
 
 	s := &Scraper{
 		config: cfg,

@@ -2,8 +2,10 @@ package scraper
 
 import (
 	"bytes"
+	"github.com/PuerkitoBio/goquery"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/headzoo/surf/browser"
 	"go.uber.org/zap"
@@ -17,6 +19,9 @@ func (s *Scraper) downloadReferences() {
 	for _, image := range s.browser.Images() {
 		s.imagesQueue = append(s.imagesQueue, &image.DownloadableAsset)
 	}
+
+	s.imagesQueue = append(s.imagesQueue, s.downloadableAssetsFromSrcSets()...)
+
 	for _, stylesheet := range s.browser.Stylesheets() {
 		s.downloadAsset(&stylesheet.DownloadableAsset, s.checkCSSForUrls)
 	}
@@ -71,4 +76,35 @@ func (s *Scraper) downloadAsset(asset *browser.DownloadableAsset, processor asse
 			zap.String("file", filePath),
 			zap.Error(err))
 	}
+}
+
+func (s *Scraper) downloadableAssetsFromSrcSets() []*browser.DownloadableAsset {
+	assets := []*browser.DownloadableAsset{}
+
+	s.browser.Find("img[srcset]").Each(func(_ int, selection *goquery.Selection) {
+		srcset, ok := selection.Attr("srcset")
+		if !ok {
+			return
+		}
+
+		lines := strings.Split(srcset, ",")
+
+		for _, l := range lines {
+			split := strings.Split(strings.TrimSpace(l), " ")
+
+			u, err := url.Parse(split[0])
+			if err != nil {
+				println(err.Error(), split[0])
+				continue
+			}
+
+			a := browser.DownloadableAsset{}
+			a.URL =	s.browser.ResolveUrl(u)
+			a.Type = browser.ImageAsset
+
+			assets = append(assets, &a)
+		}
+	})
+
+	return assets
 }

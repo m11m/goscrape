@@ -3,35 +3,49 @@ package scraper
 import (
 	"io"
 	"net/url"
+
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 	"go.uber.org/zap"
 )
 
-func (s *Scraper) fixFileReferences(url *url.URL, buf io.Reader) (string, error) {
+func (s *Scraper) fixFileReferences(u *url.URL, buf io.Reader) (string, error) {
 	g, err := goquery.NewDocumentFromReader(buf)
 	if err != nil {
 		return "", err
 	}
 
-	relativeToRoot := s.urlRelativeToRoot(url)
+	relativeToRoot := s.urlRelativeToRoot(u)
 
 	g.Find("a").Each(func(_ int, selection *goquery.Selection) {
-		s.fixQuerySelection(url, "href", selection, true, relativeToRoot)
+		s.fixQuerySelection(u, "href", selection, true, relativeToRoot)
 	})
 
 	g.Find("link").Each(func(_ int, selection *goquery.Selection) {
-		s.fixQuerySelection(url, "href", selection, false, relativeToRoot)
+		s.fixQuerySelection(u, "href", selection, false, relativeToRoot)
 	})
 
 	g.Find("img").Each(func(_ int, selection *goquery.Selection) {
-		s.fixQuerySelection(url, "src", selection, false, relativeToRoot)
-		s.fixSrcSetSelection(url, selection, relativeToRoot)
+		s.fixQuerySelection(u, "src", selection, false, relativeToRoot)
+		s.fixSrcSetSelection(u, selection, relativeToRoot)
 	})
 
 	g.Find("script").Each(func(_ int, selection *goquery.Selection) {
-		s.fixQuerySelection(url, "src", selection, false, relativeToRoot)
+		s.fixQuerySelection(u, "src", selection, false, relativeToRoot)
+	})
+
+	g.Find("style").Each(func(_ int, selection *goquery.Selection) {
+		styleIn := selection.Text()
+		styleOut, _ := ProcessStyle(&styleIn, func(urlIn string) *url.URL {
+			u, err := u.Parse(urlIn)
+			if err != nil {
+				u = nil
+				return nil
+			}
+			return s.browser.ResolveUrl(u)
+		})
+		selection.SetText(*styleOut)
 	})
 
 	return g.Html()

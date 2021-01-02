@@ -3,6 +3,9 @@ package scraper
 import (
 	"bytes"
 	"github.com/PuerkitoBio/goquery"
+	"github.com/tdewolff/parse/v2"
+	"github.com/tdewolff/parse/v2/css"
+	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -21,6 +24,8 @@ func (s *Scraper) downloadReferences() {
 	}
 
 	s.imagesQueue = append(s.imagesQueue, s.downloadableAssetsFromSrcSets()...)
+
+	s.imagesQueue = append(s.imagesQueue, s.downloadableAssetsFromBackgroundImagesInStyle()...)
 
 	for _, stylesheet := range s.browser.Stylesheets() {
 		s.downloadAsset(&stylesheet.DownloadableAsset, s.checkCSSForUrls)
@@ -107,4 +112,72 @@ func (s *Scraper) downloadableAssetsFromSrcSets() []*browser.DownloadableAsset {
 	})
 
 	return assets
+}
+
+func (s *Scraper) downloadableAssetsFromBackgroundImagesInStyle() []*browser.DownloadableAsset {
+	assets := []*browser.DownloadableAsset{}
+
+	s.browser.Find("style").Each(func(_ int, style *goquery.Selection) {
+		styleIn := style.Text()
+
+		println(styleIn)
+
+		_, newAssets := ProcessStyle(&styleIn, func(urlIn string) (u *url.URL) {
+			u, err := url.Parse(urlIn)
+			if err != nil {
+				u = nil
+				return
+			}
+			return s.browser.ResolveUrl(u)
+		})
+		assets = append(assets, newAssets...)
+	})
+
+	return assets
+}
+
+func ProcessStyle(styleIn *string, resolveUrl func(urlIn string) *url.URL) (styleOut *string, assets []*browser.DownloadableAsset) {
+	assets = []*browser.DownloadableAsset{}
+
+	output := ""
+	p := css.NewParser(parse.NewInputString(*styleIn), false)
+
+	for {
+		grammar, _, data := p.Next()
+		data = parse.Copy(data)
+		if grammar == css.ErrorGrammar {
+			if err := p.Err(); err != io.EOF {
+				data = []byte("ERROR(")
+				for _, val := range p.Values() {
+					data = append(data, val.Data...)
+				}
+				data = append(data, ")"...)
+			} else {
+				break
+			}
+		} else if grammar == css.AtRuleGrammar || grammar == css.BeginAtRuleGrammar || grammar == css.QualifiedRuleGrammar || grammar == css.BeginRulesetGrammar || grammar == css.DeclarationGrammar || grammar == css.CustomPropertyGrammar {
+			if grammar == css.DeclarationGrammar || grammar == css.CustomPropertyGrammar {
+				data = append(data, ":"...)
+			}
+			for _, val := range p.Values() {
+				if val.TokenType == css.URLToken {
+					a := browser.DownloadableAsset{}
+					a.Type = browser.ImageAsset
+					a.URL = resolveUrl(string(val.Data[4:len(val.Data)-1]))
+					assets = append(assets, &a)
+				}
+				data = append(data, val.Data...)
+			}
+			if grammar == css.BeginAtRuleGrammar || grammar == css.BeginRulesetGrammar {
+				data = append(data, " {"...)
+			} else if grammar == css.AtRuleGrammar || grammar == css.DeclarationGrammar || grammar == css.CustomPropertyGrammar {
+				data = append(data, ";"...)
+			} else if grammar == css.QualifiedRuleGrammar {
+				data = append(data, ","...)
+			}
+		}
+		output += string(append(data, "\n"...))
+	}
+
+	return &output, assets
 }
